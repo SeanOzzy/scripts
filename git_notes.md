@@ -6,7 +6,7 @@
   - You can add remotes origins using - ```git remote add origin %urlOfFork%```
  - Add the project repo as the upstream remote - ```git remote add upstream %urlOfProjectRepo%```
   - ```git remote -v``` to confirm
- - Make sure you have the latest changes from upstream - ``git pull upstream master```
+ - Make sure you have the latest changes from upstream - ```git pull upstream master```
  - Create a new branch for your code change in your local repo - ```git checkout -b %branchName%```
  - Checkout the new local branch and make your changes
  - Stage and commit any changes - ```git add and git commit -m "Your nice useful commit message"```
