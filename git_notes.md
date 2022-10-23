@@ -28,5 +28,6 @@
 1. https://github.com/firstcontributions/first-contributions
 2. https://github.com/github/docs/blob/main/CONTRIBUTING.md
 3. https://www.dataschool.io/how-to-contribute-on-github/
-
+4. Git for Professionals Tutorial - https://www.youtube.com/watch?v=Uszj_k0DGsg
+5. Advanced Git Tutorial - https://www.youtube.com/watch?v=qsTthZi23VE&t
  
