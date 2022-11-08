@@ -148,3 +148,101 @@ This uses a list of values as the partition key. List partitioning can be useful
 A hash function is executed on the partition key to indicate which partition the row should be stored in. Postgres uses a nodulo division to define the partitions. Hash partitioning can be useful when the data cannot be easily grouped by subgroup and we want to achieve a even distribution of data across the partitions. 
 
 
+## Finding queries to optimize
+
+The following query will find the TOP SQL by execution time, if the query has a low mean execution time but a high percentage_overall that means the query is taking most of the time but it likely cannot be improved, do you need to execute the query so many times? Can you get rid of the query? Cache the data?
+```
+select
+  substr(query, 1, 50) AS query_snippet,
+  round(total_exec_time :: numeric) AS total_exec_time_ms,
+  calls,
+  round(mean_exec_time :: numeric) AS mean_exec_time_ms,
+  round (
+    (
+      100 * total_exec_time / sum(total_exec_time :: numeric) OVER ()
+    ) :: numeric,
+    2
+  ) AS percentage_overall
+from
+  pg_stat_statements
+ORDER BY
+  total_exec_time desc
+limit
+  20;
+```
+Output:
+```
+                   query_snippet                    | total_exec_time_ms |  calls  | mean_exec_time_ms | percentage_overall
+----------------------------------------------------+--------------------+---------+-------------------+--------------------
+ SELECT * FROM p where i = (select floor(random()*( |              41429 | 4925897 |                 0 |              44.75
+ select sum(numbackends) numbackends, sum(xact_comm |              18470 |    1890 |                10 |              19.95
+ select pid, usename, client_addr, client_hostname, |              16980 |  113392 |                 0 |              18.34
+ select count(distinct transactionid::varchar) acti |               3857 |    1890 |                 2 |               4.17
+ select count(distinct pid) blocked_transactions fr |               3816 |    1890 |                 2 |               4.12
+ MOVE ALL IN "query-cursor_1"                       |               3028 |    1890 |                 2 |               3.27
+ SELECT pg_switch_wal()                             |                620 |      10 |                62 |               0.67
+ select queryid, calls, (total_plan_time + total_ex |                596 |     818 |                 1 |               0.64
+ select queryid, calls, (total_plan_time + total_ex |                545 |     694 |                 1 |               0.59
+ DECLARE "query-cursor_1" SCROLL CURSOR FOR select  |                456 |    1890 |                 0 |               0.49
+ select count(*) active_count from pg_stat_activity |                377 |    5670 |                 0 |               0.41
+ SELECT count(*) FROM information_schema.tables WHE |                304 |    7941 |                 0 |               0.33
+ select queryid, calls, (total_plan_time + total_ex |                297 |     365 |                 1 |               0.32
+ SELECT count(*) FROM pg_show_all_settings() WHERE  |                276 |     189 |                 1 |               0.30
+ select extract($1 from now() - min(xact_start)) lo |                230 |    1890 |                 0 |               0.25
+ BEGIN                                              |                210 |  151204 |                 0 |               0.23
+ SELECT $1                                          |                173 |   74715 |                 0 |               0.19
+ FETCH 50 IN "query-cursor_1"                       |                126 |   38199 |                 0 |               0.14
+ COMMIT                                             |                121 |  151204 |                 0 |               0.13
+ select coalesce(extract($1 from max(now() - state_ |                109 |    1890 |                 0 |               0.12
+(20 rows)
+```
+
+## Find missing indexes and fix many problems
+
+If you are doing a large number of sequential scans and each sequentail scan is reading a large number of rows "avg_no_rows_read" this is likely a missing index, if the number of rows read is low this is likely ok.
+
+```
+SELECT schemaname, relname, seq_scan, seq_tup_read, idx_scan, 
+seq_tup_read / seq_scan as avg_no_rows_read 
+FROM pg_stat_user_tables
+WHERE seq_scan > 0
+ORDER BY seq_tup_read DESC;
+```
+Output:
+```
+ schemaname |     relname     | seq_scan  | seq_tup_read | idx_scan | avg_no_rows_read
+------------+-----------------+-----------+--------------+----------+------------------
+ stats      | lock_monitor    |        15 |        50697 |          |             3379
+ public     | pgss_simple     |         3 |          294 |          |               98
+ public     | pgss_prepared   |         2 |          164 |          |               82
+ public     | pgss_simple_2   |         1 |           98 |          |               98
+ public     | pgss_prepared_2 |         1 |           91 |          |               91
+ public     | p16             |        12 |            0 |        0 |                0
+ public     | p7              |        12 |            0 |        0 |                0
+ public     | p15             |        12 |            0 |        0 |                0
+ public     | p27             |        12 |            0 |        0 |                0
+ public     | p13             |        12 |            0 |        0 |                0
+ public     | p1              |        12 |            0 |        0 |                0
+ public     | p4              |        12 |            0 |        0 |                0
+ public     | p14             |        12 |            0 |        0 |                0
+ public     | p2              |        12 |            0 |        0 |                0
+ public     | p24             |        12 |            0 |        0 |                0
+ public     | p11             |        12 |            0 |        0 |                0
+ public     | p25             |        12 |            0 |        0 |                0
+ public     | p3              |        12 |            0 |        0 |                0
+ public     | p0              | 155493621 |            0 |        0 |                0
+ public     | p18             |        12 |            0 |        0 |                0
+ public     | p5              |        12 |            0 |        0 |                0
+ public     | p9              |        12 |            0 |        0 |                0
+ public     | p10             |        12 |            0 |        0 |                0
+ public     | p21             |        12 |            0 |        0 |                0
+ public     | p12             |        12 |            0 |        0 |                0
+ public     | p6              |        12 |            0 |        0 |                0
+ public     | p17             |        12 |            0 |        0 |                0
+ public     | p22             |        12 |            0 |        0 |                0
+ public     | p19             |        12 |            0 |        0 |                0
+ public     | p23             |        12 |            0 |        0 |                0
+ public     | p20             |        12 |            0 |        0 |                0
+ public     | p26             |        12 |            0 |        0 |                0
+(32 rows)
+```
