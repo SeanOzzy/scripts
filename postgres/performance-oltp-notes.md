@@ -246,3 +246,12 @@ Output:
  public     | p26             |        12 |            0 |        0 |                0
 (32 rows)
 ```
+
+## A deep dive into PostgreSQL query optimizations
+https://github.com/postgres/postgres/blob/master/src/backend/optimizer/README
+https://postgrespro.com/blog/pgsql/5968054
+https://www.youtube.com/playlist?list=PLSE8ODhjZXjasmrEd2_Yi1deeE360zv5O
+https://github.com/postgres-ai/joe
+
+
+
