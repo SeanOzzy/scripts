@@ -2,16 +2,27 @@
 
 echo "############################################################################################"
 echo "# This script is designed to build the PostgreSQL database version you specify from source #"
+echo "# The main purpose of this script to to quickly test community versions as a result        #"
+echo "# the directory locations and settings are not necessarilly PRODUCATION ready              #"
 echo "#                                                                                          #"
-echo "#                                 Tested for Amazon Linux 2                                 #"
+echo "#                                 Tested for Amazon Linux 2                                #"
 echo "############################################################################################"
 echo
 read -p "Specify PostgreSQL version, eg 15.2... " PGVER
 read -p "Initialize database? " INIT_REPLY
-BINDIR=$HOME/postgres-$PGVER-`date +%F`
-DATADIR=$BINDIR/data
+# read -p "Do you need to install any extensions from contrib? " EXT_REPLY
+
+BINDIR=$HOME/postgres-$PGVER-`date +%F`         # This location should be changed this is just
+DATADIR=$BINDIR/data                            # used for testing
 PGUSER=`whoami`
-PGPORT=`echo $RANDOM`
+PGPORT=`echo $RANDOM`                           # Modify the port for PROD use, this is for testing
+
+function installContribExtension {
+# Needs to be implemented
+# string of available contrib extensions 
+# cd postgresql-$PGVER/
+# `ls -d contrib/* | egrep -v "README|Make|mk" | awk -F"/" '{print $2 " "}' | tr -d '\n' | grep -v %`
+}
 
 function checkInstallStatus {
         if [[ -f $BINDIR/bin/pg_ctl ]]
