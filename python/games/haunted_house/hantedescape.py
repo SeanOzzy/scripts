@@ -51,7 +51,11 @@ rooms = {
 # Define the ghost scare function, this randomly decides if a ghost appears or not.
 def scare():
     if random.random() < 0.2:
-        print("٩(̾●̮̮̃̾•̃̾)۶ ٩(̾●̮̮̃̾•̃̾)۶ ٩(̾●̮̮̃̾•̃̾)۶")
+        print(" .-.")
+        print("  (o o) boo!")
+        print("\\| O /")
+        print(" \\   /")
+        print("  `~~~'")
         print("A ghost appears and scares you!")
         return True
     else:
