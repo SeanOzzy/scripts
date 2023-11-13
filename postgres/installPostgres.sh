@@ -8,21 +8,25 @@ echo "#                                                                         
 echo "#                                 Tested for Amazon Linux 2                                #"
 echo "############################################################################################"
 echo
-read -p "Specify PostgreSQL version, eg 15.2... " PGVER
+read -p "Specify PostgreSQL version, eg 16.1... " PGVER
 read -p "Initialize database? " INIT_REPLY
-# read -p "Do you need to install any extensions from contrib? " EXT_REPLY
+read -p "Compile and install contrib extensions? " EXT_REPLY
 
-BINDIR=$HOME/postgres-$PGVER-`date +%F`         # This location should be changed this is just
-DATADIR=$BINDIR/data                            # used for testing
-PGUSER=`whoami`
-PGPORT=`echo $RANDOM`                           # Modify the port for PROD use, this is for testing
+INIT_DIR=$PWD
+BINDIR=$HOME/postgres-$PGVER-`date +%F`
+DATADIR=$BINDIR/data
+PG_LOGFILE=$BINDIR/postgres.log
+DEPLOY_LOGFILE=$BINDIR/INSTALL.LOG
+DEPLOY_PGUSER=`whoami`
+DEPLOY_PGPORT=`echo $RANDOM`
+downloadUrl="https://ftp.postgresql.org/pub/source/v$PGVER/postgresql-$PGVER.tar.gz"
 
-function installContribExtension {
-# Needs to be implemented
-# string of available contrib extensions 
-# cd postgresql-$PGVER/
-# `ls -d contrib/* | egrep -v "README|Make|mk" | awk -F"/" '{print $2 " "}' | tr -d '\n' | grep -v %`
-}
+#function installDevelopment {
+#if [[ "$( echo "$PGVER == dev" |bc)" =1 ]]
+#	then downloadUrl="https://ftp.postgresql.org/pub/snapshot/dev/postgresql-snapshot.tar.gz"
+#	else downloadUrl="https://ftp.postgresql.org/pub/source/v$PGVER/postgresql-$PGVER.tar.gz"
+#fi
+#}
 
 function checkInstallStatus {
         if [[ -f $BINDIR/bin/pg_ctl ]]
@@ -36,7 +40,8 @@ function checkInstallStatus {
 
 
 function verifyVersion {
-if curl --head --silent --fail https://ftp.postgresql.org/pub/source/v$PGVER/postgresql-$PGVER.tar.gz 1>&2> /dev/null;
+if curl --head --silent --fail $downloadUrl 1>&2> /dev/null;
+#if curl --head --silent --fail https://ftp.postgresql.org/pub/source/v$PGVER/postgresql-$PGVER.tar.gz 1>&2> /dev/null;
         then
                 echo
                 echo "--> Postgres version $PGVER available in community source. <--"
@@ -73,7 +78,8 @@ then
         extractCompilePostgres
 else
         echo "--> Downloading PostgreSQL source files for version $PGVER <--"
-        wget https://ftp.postgresql.org/pub/source/v$PGVER/postgresql-$PGVER.tar.gz
+        wget $downloadUrl
+        #wget https://ftp.postgresql.org/pub/source/v$PGVER/postgresql-$PGVER.tar.gz
         if [[ $? -ne 0 ]]
                 then
                         echo "^^^ ERROR: Download failed ^^^"
@@ -98,14 +104,55 @@ function initializeDatabase {
                                         echo "^^^ ERROR: Initializing database failed ^^^"
                                         exit 1
                                 else
-                                        echo "--> Database initialization completed <--"
-                                        echo "--> Database can be started using: "
-                                        echo "          $BINDIR/bin/pg_ctl -D $DATADIR -l logfile start"
-                                        echo "--> Connect to database using: "
-                                        echo "          psql -h localhost -p $PGPORT postgres"
-                                        exit 0
+                                        echo "--> Database initialization completed <--" | tee -a $DEPLOY_LOGFILE
+                                        echo "--> Database can be started using: " | tee -a $DEPLOY_LOGFILE
+                                        echo "          $BINDIR/bin/pg_ctl -D $DATADIR -l $PG_LOGFILE start" | tee -a $DEPLOY_LOGFILE
+                                        echo "--> Connect to database using: " | tee -a $DEPLOY_LOGFILE
+                                        echo "          psql -h localhost -p $DEPLOY_PGPORT postgres" | tee -a $DEPLOY_LOGFILE
+                                        echo " " | tee -a $DEPLOY_LOGFILE
+                                        # exit 0
+                                        if [[ $EXT_REPLY =~ ^(Y|y)$ ]]
+                                                then
+                                                        compileExtensions
+                                                else
+                                                        echo "^^^ WARNING: Extensions not compiled, run $BINDIR/bin/pg_config --sharedir to locate extensions directory. ^^^"
+                                                        exit 0
+                                        fi
                         fi
         fi
+}
+
+function compileExtensions {
+        echo ""
+        echo "--> Compiling extensions for PostgreSQL version: $PGVER <--" | tee -a $DEPLOY_LOGFILE
+        echo "-->     User specified extensions: $(echo $EXTENSIONS) <--" | tee -a $DEPLOY_LOGFILE
+        for extension in $(echo $EXTENSIONS | sed "s/,/ /g")
+                do
+                        cd $INIT_DIR
+                        echo "" | tee -a $DEPLOY_LOGFILE
+                        echo "--> Compiling and installing extension: $extension <--" | tee -a $DEPLOY_LOGFILE
+                        cd postgresql-$PGVER/contrib/$extension
+                        make 1>&2> /dev/null
+                        if [[ $? -ne 0 ]]
+                                then
+                                        echo "^^^ ERROR: Compile failed for $extension ^^^"
+                                        exit 1
+                                else
+                                        echo "--> Installing $extension <--"
+                                        sudo make install 1>&2> /dev/null
+                                        if [[ $? -ne 0 ]]
+                                                then
+                                                        echo "^^^ ERROR: Install failed for $extension ^^^"
+                                                        exit 1
+                                                else
+                                                        echo "--> $extension installed successfully <--" | tee -a $DEPLOY_LOGFILE
+                                        fi
+                        fi
+        done
+        echo "--> Resetting permissions for installed extensions <--"
+        sudo chown -R $DEPLOY_PGUSER $BINDIR/share/extension
+        echo "--> Extensions have been installed to: $BINDIR/share/extension <--" | tee -a $DEPLOY_LOGFILE
+        exit 0
 }
 
 function extractCompilePostgres {
@@ -120,43 +167,54 @@ if [[ -d !postgresql-$PGVER ]]
                         echo "^^^ ERROR: Could not extract source files ^^^"
                         exit 1
                 else
+                        if [[ $EXT_REPLY =~ ^(Y|y)$ ]]
+                                then
+                                AVAILABLE_EXTENSIONS=$(ls postgresql-$PGVER/contrib -m)
+                                read -p "Specify extensions to install from the following list: $(echo $AVAILABLE_EXTENSIONS) ... " EXTENSIONS
+                        fi
                         cd postgresql-$PGVER/
                         echo
                         echo "--> Running configure <--"
-                        ./configure --prefix=$BINDIR --with-pgport=$PGPORT --with-openssl --with-perl --with-tcl --with-ossp-uuid --with-libxml --with-pam --with-ldap \
+                        #./configure --prefix=$BINDIR --with-pgport=$DEPLOY_PGPORT --with-openssl --with-perl --with-tcl --with-ossp-uuid --with-libxml --with-pam --with-ldap \
+                        ./configure --prefix=$BINDIR --with-pgport=$DEPLOY_PGPORT --with-openssl --with-perl --with-tcl --with-ossp-uuid --with-pam --with-ldap \
                         --with-krb-srvnam=whatever --with-gssapi --enable-debug 1>&2> /dev/null
                 if [[ $? -ne 0 ]]
                         then
                                 echo "^^^ ERROR: Executing configure failed ^^^"
+                                cd $INIT_DIR
                                 exit 1
                         else
                                 echo
-                                echo "--> Compiling source <--"
+                                echo "--> Compiling $PGVER engine source <--"
                                 make 1>&2> /dev/null
                         if [[ $? -ne 0 ]]
                                 then
                                         echo "^^^ ERROR: Compile failed ^^^"
+                                        cd $INIT_DIR
                                         exit 1
                                 else
                                         echo
-                                        echo "--> Installing from source <--"
+                                        echo "--> Installing $PGVER from source <--"
                                         sudo make install 1>&2> /dev/null
                                         if [[ $? -ne 0 ]]
                                                 then
                                                         echo "^^^ ERROR: Install from source failed ^^^"
                                                         make clean 1>&2> /dev/null
+                                                        cd $INIT_DIR
                                                         exit 1
                                                 else
                                                         make clean 1>&2> /dev/null
                                                         echo "--> Resetting permissions <--"
-                                                        sudo chown -R $PGUSER $BINDIR
+                                                        sudo chown -R $DEPLOY_PGUSER $BINDIR
                                                         echo "--> Binaries installed to: $BINDDIR/bin <--"
                                                         echo "--> Install complete <--"
                                                                 if [[ $INIT_REPLY =~ ^(Y|y)$ ]]
                                                                 then
+                                                                        cd $INIT_DIR
                                                                         initializeDatabase
                                                                 else
                                                                         echo "^^^ WARNING: Database not intialized, run $BINDIR/bin/initdb -D $DATADIR later if required. ^^^"
+                                                                        cd $INIT_DIR
                                                                         exit 0
                                                                 fi
                                         fi
