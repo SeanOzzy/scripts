@@ -1,7 +1,6 @@
 """ 
 This is a simple script to help quickly convert t_infomask and t_infomask2 values to their 
 human-readable interpretations.
-contributor: mssysm@
 
 References:
 infomask source - https://github.com/postgres/postgres/blob/master/src/include/access/htup_details.h#L187-L273
