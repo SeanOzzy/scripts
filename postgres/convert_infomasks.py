@@ -16,33 +16,30 @@ You can run this script and enter the values to get the following output:
 $ python convert_infomasks.py
 Enter t_infomask value: 1283
 Enter t_infomask2 value: 8221
-Interpretation for t_infomask:
+Enter csv for csv output:
+
+Interpretation for t_infomask:  1283
 - HEAP_HASNULL
 - HEAP_HASVARWIDTH
 - HEAP_XMIN_COMMITTED
 - HEAP_XMAX_COMMITTED
 
-Interpretation for t_infomask2:
+
+Interpretation for t_infomask2:  8221
 - HEAP_NATTS_MASK
 - HEAP_KEYS_UPDATED
 - 29 attributes
 
 $ python convert_infomasks.py
-Enter t_infomask value: 9507
-Enter t_infomask2 value: 49181
-Interpretation for t_infomask:
-- HEAP_HASNULL
-- HEAP_HASVARWIDTH
-- HEAP_COMBOCID
-- HEAP_XMIN_COMMITTED
-- HEAP_XMAX_COMMITTED
-- HEAP_UPDATED
+Enter t_infomask value: 1283
+Enter t_infomask2 value: 8221
+Enter csv for csv output: csv
 
-Interpretation for t_infomask2:
-- HEAP_NATTS_MASK
-- HEAP_HOT_UPDATED
-- HEAP_ONLY_TUPLE
-- 29 attributes
+Interpretation for t_infomask:  1283
+HEAP_HASNULL, HEAP_HASVARWIDTH, HEAP_XMIN_COMMITTED, HEAP_XMAX_COMMITTED,
+
+Interpretation for t_infomask2:  8221
+HEAP_NATTS_MASK, HEAP_KEYS_UPDATED, 29 attributes, 
 
 
 """
@@ -94,11 +91,18 @@ def decode_infomask2(infomask2):
 if __name__ == "__main__":
     infomask = int(input("Enter t_infomask value: "))
     infomask2 = int(input("Enter t_infomask2 value: "))
+    decoded_infomask_output = input("Enter csv for csv output: ")
 
-    print("Interpretation for t_infomask:")
+    print("\nInterpretation for t_infomask: ", infomask)
     for item in decode_infomask(infomask):
-        print(f"- {item}")
+        if decoded_infomask_output == "csv":
+            print(f"{item}", end =", ")
+        else:
+            print(f"- {item}")
 
-    print("\nInterpretation for t_infomask2:")
+    print("\n\nInterpretation for t_infomask2: ", infomask2)
     for item in decode_infomask2(infomask2):
-        print(f"- {item}")
+        if decoded_infomask_output == "csv":
+            print(f"{item}", end =", ")
+        else:
+            print(f"- {item}")
