@@ -1,5 +1,70 @@
 #!/bin/bash
 
+function printHelp {
+    echo "Usage: $(basename $0) [OPTIONS]"
+    echo
+    echo "Build and install PostgreSQL from source on Ubuntu."
+    echo
+    echo "Options:"
+    echo "  (no options)            Interactive mode: prompts for a release version to download and build"
+    echo "  --branch <branch_name>  Clone and build from a named git branch (e.g. master, REL_17_STABLE)"
+    echo "  --commit <hash>         Clone and build from a specific git commit hash"
+    echo "  -h, --help              Show this help message and exit"
+    echo
+    echo "Examples:"
+    echo "  $(basename $0)"
+    echo "  $(basename $0) --branch master"
+    echo "  $(basename $0) --branch REL_17_STABLE"
+    echo "  $(basename $0) --commit abc1234def5678"
+}
+
+function parseArgs {
+    SOURCE_MODE="version"
+    BRANCH_NAME=""
+    COMMIT_HASH=""
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --branch)
+                if [[ -n $COMMIT_HASH ]]; then
+                    echo "^^^ ERROR: --branch and --commit are mutually exclusive ^^^"
+                    exit 2
+                fi
+                if [[ -z $2 || $2 == --* ]]; then
+                    echo "^^^ ERROR: --branch requires a value ^^^"
+                    exit 2
+                fi
+                SOURCE_MODE="branch"
+                BRANCH_NAME=$2
+                shift 2
+                ;;
+            --commit)
+                if [[ -n $BRANCH_NAME ]]; then
+                    echo "^^^ ERROR: --branch and --commit are mutually exclusive ^^^"
+                    exit 2
+                fi
+                if [[ -z $2 || $2 == --* ]]; then
+                    echo "^^^ ERROR: --commit requires a value ^^^"
+                    exit 2
+                fi
+                SOURCE_MODE="commit"
+                COMMIT_HASH=$2
+                shift 2
+                ;;
+            -h|--help)
+                printHelp
+                exit 0
+                ;;
+            *)
+                echo "^^^ ERROR: Unknown option: $1 ^^^"
+                echo
+                printHelp
+                exit 2
+                ;;
+        esac
+    done
+}
+
 function printHeader {
 
 echo "############################################################################################"
@@ -10,9 +75,20 @@ echo "#                                                                         
 echo "#                                 Tested for Ubuntu                                        #"
 echo "############################################################################################"
 echo
-checkLatestVersion
-read -p "Specify PostgreSQL version, eg $latestVersion... " PGVER
-echo Version specified:$PGVER
+
+if [[ $SOURCE_MODE == "version" ]]; then
+    checkLatestVersion
+    read -p "Specify PostgreSQL version, eg $latestVersion... " PGVER
+    echo Version specified:$PGVER
+    downloadUrl="https://ftp.postgresql.org/pub/source/v$PGVER/postgresql-$PGVER.tar.gz"
+elif [[ $SOURCE_MODE == "branch" ]]; then
+    PGVER=$BRANCH_NAME
+    echo "--> Building from branch: $BRANCH_NAME <--"
+elif [[ $SOURCE_MODE == "commit" ]]; then
+    PGVER=${COMMIT_HASH:0:8}
+    echo "--> Building from commit: $COMMIT_HASH <--"
+fi
+
 read -p "Initialize database? " INIT_REPLY
 read -p "Compile and install contrib extensions? " EXT_REPLY
 
@@ -23,7 +99,7 @@ PG_LOGFILE=$BINDIR/postgres.log
 DEPLOY_LOGFILE=$BINDIR/INSTALL.LOG
 DEPLOY_PGUSER=`whoami`
 DEPLOY_PGPORT=`echo $RANDOM`
-downloadUrl="https://ftp.postgresql.org/pub/source/v$PGVER/postgresql-$PGVER.tar.gz"
+SOURCE_DIR="postgresql-$PGVER"
 }
 
 
@@ -61,8 +137,12 @@ function installPrereqs {
         echo "--> Installing required packages <--"
         sudo apt-get update
         sudo apt-get install -y build-essential libreadline-dev zlib1g-dev flex bison libxml2-dev libxslt-dev libssl-dev \
-            libperl-dev libkrb5-dev libpam0g-dev libldap2-dev libicu-dev clang liblz4-dev libzstd-dev wget 1>&2> /dev/null
-        downloadPostgresSrc
+            libperl-dev libkrb5-dev libpam0g-dev libldap2-dev libicu-dev clang liblz4-dev libzstd-dev wget git 1>&2> /dev/null
+        if [[ $SOURCE_MODE == "version" ]]; then
+            downloadPostgresSrc
+        else
+            clonePostgresSrc
+        fi
     else
         echo "^^^ WARNING: Cancelling per user request ^^^"
         exit 0
@@ -87,6 +167,37 @@ function downloadPostgresSrc {
             extractCompilePostgres
         fi
     fi
+}
+
+function clonePostgresSrc {
+    local repo="https://github.com/postgres/postgres.git"
+
+    if [[ -d $SOURCE_DIR ]]; then
+        rm -rf $SOURCE_DIR
+    fi
+
+    if [[ $SOURCE_MODE == "branch" ]]; then
+        echo "--> Cloning PostgreSQL source from branch: $BRANCH_NAME <--"
+        git clone --branch $BRANCH_NAME --single-branch --depth 1 $repo $SOURCE_DIR
+        if [[ $? -ne 0 ]]; then
+            echo "^^^ ERROR: Clone failed ^^^"
+            exit 1
+        fi
+    elif [[ $SOURCE_MODE == "commit" ]]; then
+        echo "--> Cloning PostgreSQL source for commit: $COMMIT_HASH <--"
+        git clone $repo $SOURCE_DIR
+        if [[ $? -ne 0 ]]; then
+            echo "^^^ ERROR: Clone failed ^^^"
+            exit 1
+        fi
+        git -C $SOURCE_DIR checkout $COMMIT_HASH
+        if [[ $? -ne 0 ]]; then
+            echo "^^^ ERROR: Checkout of commit $COMMIT_HASH failed ^^^"
+            exit 1
+        fi
+    fi
+
+    extractCompilePostgres
 }
 
 function initializeDatabase {
@@ -129,7 +240,7 @@ function compileExtensions {
         cd $INIT_DIR
         echo "" | tee -a $DEPLOY_LOGFILE
         echo "--> Compiling and installing extension: $extension <--" | tee -a $DEPLOY_LOGFILE
-        cd postgresql-$PGVER/contrib/$extension
+        cd $SOURCE_DIR/contrib/$extension
         make 1>&2> /dev/null
         if [[ $? -ne 0 ]]
         then
@@ -154,31 +265,33 @@ function compileExtensions {
 }
 
 function extractCompilePostgres {
-    if [[ ! -d postgresql-$PGVER ]]
-    then
-        tar xf postgresql-$PGVER.tar.gz
-        if [[ $? -ne 0 ]]
+    if [[ $SOURCE_MODE == "version" ]]; then
+        if [[ ! -d $SOURCE_DIR ]]
         then
-            echo "^^^ ERROR: Could not extract source files ^^^"
-            exit 1
-        fi
-    else
-        rm -rf postgresql-$PGVER
-        tar xf postgresql-$PGVER.tar.gz
-        if [[ $? -ne 0 ]]
-        then
-            echo "^^^ ERROR: Could not extract source files ^^^"
-            exit 1
+            tar xf postgresql-$PGVER.tar.gz
+            if [[ $? -ne 0 ]]
+            then
+                echo "^^^ ERROR: Could not extract source files ^^^"
+                exit 1
+            fi
+        else
+            rm -rf $SOURCE_DIR
+            tar xf postgresql-$PGVER.tar.gz
+            if [[ $? -ne 0 ]]
+            then
+                echo "^^^ ERROR: Could not extract source files ^^^"
+                exit 1
+            fi
         fi
     fi
 
     if [[ $EXT_REPLY =~ ^(Y|y)$ ]]
     then
-        AVAILABLE_EXTENSIONS=$(ls postgresql-$PGVER/contrib -m)
+        AVAILABLE_EXTENSIONS=$(ls $SOURCE_DIR/contrib -m)
         read -p "Specify extensions to install from the following list: $(echo $AVAILABLE_EXTENSIONS) ... " EXTENSIONS
     fi
 
-    cd postgresql-$PGVER/
+    cd $SOURCE_DIR/
     echo
     echo "--> Running configure <--"
     ./configure --prefix=$BINDIR --with-pgport=$DEPLOY_PGPORT --with-openssl --with-perl --with-tcl --with-ossp-uuid --with-pam --with-ldap \
@@ -227,6 +340,7 @@ function extractCompilePostgres {
     fi
 }
 
+parseArgs "$@"
 printHeader
-verifyVersion
+[[ $SOURCE_MODE == "version" ]] && verifyVersion
 checkInstallStatus
