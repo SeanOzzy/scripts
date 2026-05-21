@@ -79,7 +79,7 @@ echo
 if [[ $SOURCE_MODE == "version" ]]; then
     checkLatestVersion
     read -p "Specify PostgreSQL version, eg $latestVersion... " PGVER
-    echo Version specified:$PGVER
+    echo Version specified: $PGVER
     downloadUrl="https://ftp.postgresql.org/pub/source/v$PGVER/postgresql-$PGVER.tar.gz"
 elif [[ $SOURCE_MODE == "branch" ]]; then
     PGVER=$BRANCH_NAME
@@ -102,6 +102,27 @@ DEPLOY_PGPORT=`echo $RANDOM`
 SOURCE_DIR="postgresql-$PGVER"
 }
 
+required_packages=(
+  build-essential
+  libreadline-dev
+  zlib1g-dev
+  flex
+  bison
+  libxml2-dev
+  libxslt1-dev
+  libssl-dev
+  libperl-dev
+  libkrb5-dev
+  libpam0g-dev
+  libldap2-dev
+  libicu-dev
+  clang
+  liblz4-dev
+  libzstd-dev
+  wget
+  git
+)
+
 
 function checkLatestVersion {
     latestVersion=$(curl -s https://ftp.postgresql.org/pub/source/ | grep -oP 'v\K[0-9]+\.[0-9]+' | sort -V | tail -n 1)
@@ -113,7 +134,17 @@ function checkInstallStatus {
         echo "^^^ WARNING: Postgres version $PGVER appears to be installed in $BINDIR. ^^^"
         exit 17
     else
-        installPrereqs
+        # Check if prerequisites are installed, if not call installPrereqs. 
+        for pkg in ${required_packages[@]}
+        do
+            if ! dpkg -s $pkg 1>&2> /dev/null
+                then
+                echo "^^^ WARNING: Required package $pkg is not installed ^^^"
+                installPrereqs
+                break
+            fi
+        done
+        #installPrereqs
     fi
 }
 
@@ -136,13 +167,7 @@ function installPrereqs {
         echo
         echo "--> Installing required packages <--"
         sudo apt-get update
-        sudo apt-get install -y build-essential libreadline-dev zlib1g-dev flex bison libxml2-dev libxslt-dev libssl-dev \
-            libperl-dev libkrb5-dev libpam0g-dev libldap2-dev libicu-dev clang liblz4-dev libzstd-dev wget git 1>&2> /dev/null
-        if [[ $SOURCE_MODE == "version" ]]; then
-            downloadPostgresSrc
-        else
-            clonePostgresSrc
-        fi
+        sudo apt-get install -y ${required_packages[@]} 1>&2> /dev/null
     else
         echo "^^^ WARNING: Cancelling per user request ^^^"
         exit 0
@@ -157,7 +182,7 @@ function downloadPostgresSrc {
         echo "--> Source files already available locally <--"
         extractCompilePostgres
     else
-        echo "--> Downloading PostgreSQL source files for version $PGVER <--"
+        echo "--> Downloading PostgreSQL source files for version $PGVER <--" | tee -a $DEPLOY_LOGFILE
         wget $downloadUrl
         if [[ $? -ne 0 ]]
         then
@@ -177,14 +202,14 @@ function clonePostgresSrc {
     fi
 
     if [[ $SOURCE_MODE == "branch" ]]; then
-        echo "--> Cloning PostgreSQL source from branch: $BRANCH_NAME <--"
+        echo "--> Cloning PostgreSQL source from branch: $BRANCH_NAME <--" | tee -a $DEPLOY_LOGFILE
         git clone --branch $BRANCH_NAME --single-branch --depth 1 $repo $SOURCE_DIR
         if [[ $? -ne 0 ]]; then
             echo "^^^ ERROR: Clone failed ^^^"
             exit 1
         fi
     elif [[ $SOURCE_MODE == "commit" ]]; then
-        echo "--> Cloning PostgreSQL source for commit: $COMMIT_HASH <--"
+        echo "--> Cloning PostgreSQL source for commit: $COMMIT_HASH <--" | tee -a $DEPLOY_LOGFILE
         git clone $repo $SOURCE_DIR
         if [[ $? -ne 0 ]]; then
             echo "^^^ ERROR: Clone failed ^^^"
@@ -247,7 +272,7 @@ function compileExtensions {
             echo "^^^ ERROR: Compile failed for $extension ^^^"
             exit 1
         else
-            echo "--> Installing $extension <--"
+            echo "--> Installing $extension <--" | tee -a $DEPLOY_LOGFILE
             sudo make install 1>&2> /dev/null
             if [[ $? -ne 0 ]]
             then
@@ -331,7 +356,7 @@ function extractCompilePostgres {
                     cd $INIT_DIR
                     initializeDatabase
                 else
-                    echo "^^^ WARNING: Database not initialized, run $BINDIR/bin/initdb -D $DATADIR later if required. ^^^"
+                    echo "^^^ WARNING: Database not initialized, run $BINDIR/bin/initdb -D $DATADIR later if required. ^^^" | tee -a $DEPLOY_LOGFILE
                     cd $INIT_DIR
                     exit 0
                 fi
@@ -344,3 +369,8 @@ parseArgs "$@"
 printHeader
 [[ $SOURCE_MODE == "version" ]] && verifyVersion
 checkInstallStatus
+if [[ $SOURCE_MODE == "version" ]]; then
+    downloadPostgresSrc
+else
+    clonePostgresSrc
+fi
